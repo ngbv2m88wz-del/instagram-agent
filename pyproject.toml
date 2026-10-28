@@ -18,6 +18,7 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 instagram-agent = "instagram_agent.cli:main"
+instagram-agent-bot = "instagram_agent.telegram_bot:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

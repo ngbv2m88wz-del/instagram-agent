@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
 
     analyze_cmd = sub.add_parser("analyze", help="анализ публикаций, отчёт в Markdown")
     recommend_cmd = sub.add_parser("recommend", help="анализ и рекомендации по контенту от Claude")
-    recommend_cmd.add_argument("--goal", help="цель аккаунта, например «больше заявок на консультации»")
+    recommend_cmd.add_argument("--goal", default=os.getenv("INSTAGRAM_GOAL") or None, help="цель аккаунта, например «больше заявок на консультации»")
     for cmd in (analyze_cmd, recommend_cmd):
         cmd.add_argument("--file", type=Path, help="выгрузка media-*.json (по умолчанию последняя в data/)")
         cmd.add_argument("--fetch", action="store_true", help="сначала выгрузить свежие данные из API")
