@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from .analysis import analyze, render_report
 from .config import load_settings
 from .graph_api import GraphAPIError, InstagramGraphClient
+from .recommend import RecommendationError, get_recommendations
 
 
 def _save(data: Any, out_dir: Path, name: str) -> Path:
@@ -71,7 +72,7 @@ def cmd_insights(client: InstagramGraphClient, args: argparse.Namespace) -> Any:
     return {"since": since, "until": until, "metrics": client.get_account_insights(since, until)}
 
 
-def run_analyze(args: argparse.Namespace) -> str:
+def run_analyze(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     if args.fetch:
         client = InstagramGraphClient(load_settings())
         profile = client.get_profile()
@@ -86,7 +87,15 @@ def run_analyze(args: argparse.Namespace) -> str:
         media = _load(media_path)
         profile = _load(profile_path) if profile_path else None
         print(f"Публикации: {media_path}" + (f", профиль: {profile_path}" if profile_path else ""))
-    return render_report(analyze(media, profile, tz=args.tz))
+    result = analyze(media, profile, tz=args.tz)
+    return render_report(result), result
+
+
+def run_recommend(args: argparse.Namespace) -> str:
+    report, result = run_analyze(args)
+    _save(report, args.out, "report")
+    print("Claude готовит рекомендации, это может занять пару минут…")
+    return get_recommendations(report, result, goal=args.goal)
 
 
 def _timezone(name: str) -> str:
@@ -117,27 +126,31 @@ def main(argv: list[str] | None = None) -> int:
     insights.set_defaults(func=cmd_insights)
 
     analyze_cmd = sub.add_parser("analyze", help="анализ публикаций, отчёт в Markdown")
-    analyze_cmd.add_argument("--file", type=Path, help="выгрузка media-*.json (по умолчанию последняя в data/)")
-    analyze_cmd.add_argument("--fetch", action="store_true", help="сначала выгрузить свежие данные из API")
-    analyze_cmd.add_argument("--limit", type=int, default=100, help="сколько постов выгружать с --fetch")
-    analyze_cmd.add_argument("--tz", type=_timezone, default=os.getenv("INSTAGRAM_TIMEZONE") or "UTC",
-                             help="часовой пояс для анализа времени, например Europe/Moscow")
+    recommend_cmd = sub.add_parser("recommend", help="анализ и рекомендации по контенту от Claude")
+    recommend_cmd.add_argument("--goal", help="цель аккаунта, например «больше заявок на консультации»")
+    for cmd in (analyze_cmd, recommend_cmd):
+        cmd.add_argument("--file", type=Path, help="выгрузка media-*.json (по умолчанию последняя в data/)")
+        cmd.add_argument("--fetch", action="store_true", help="сначала выгрузить свежие данные из API")
+        cmd.add_argument("--limit", type=int, default=100, help="сколько постов выгружать с --fetch")
+        cmd.add_argument("--tz", type=_timezone, default=os.getenv("INSTAGRAM_TIMEZONE") or "UTC",
+                         help="часовой пояс для анализа времени, например Europe/Moscow")
 
     args = parser.parse_args(argv)
     try:
         if args.command == "analyze":
-            data = run_analyze(args)
+            data = run_analyze(args)[0]
+        elif args.command == "recommend":
+            data = run_recommend(args)
         else:
             data = args.func(InstagramGraphClient(load_settings()), args)
-    except (RuntimeError, GraphAPIError) as exc:
+    except (RuntimeError, GraphAPIError, RecommendationError) as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return 1
 
-    if args.command == "analyze":
+    names = {"analyze": "report", "recommend": "recommendations"}
+    data_name = names.get(args.command, args.command)
+    if isinstance(data, str):
         print(data)
-        data_name = "report"
-    else:
-        data_name = args.command
     path = _save(data, args.out, data_name)
     print(f"Сохранено: {path}")
     return 0
